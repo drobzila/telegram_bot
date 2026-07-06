@@ -1,8 +1,10 @@
+import io
 import logging
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
 
 from config import (
     DRIVE_FOLDER_ID,
@@ -67,3 +69,70 @@ def count_videos():
             break
 
     return len(files)
+
+
+def list_videos():
+    """يعيد قائمة بملفات الفيديو الموجودة داخل مجلد Drive المحدد."""
+
+    service = get_drive_service()
+
+    query = (
+        f"'{DRIVE_FOLDER_ID}' in parents "
+        "and trashed=false "
+        "and mimeType contains 'video/'"
+    )
+
+    files = []
+    page_token = None
+
+    while True:
+        response = service.files().list(
+            q=query,
+            fields="nextPageToken, files(id, name, mimeType, size)",
+            pageToken=page_token,
+        ).execute()
+
+        files.extend(response.get("files", []))
+
+        page_token = response.get("nextPageToken")
+
+        if not page_token:
+            break
+
+    return files
+
+
+def get_video_info(file_id):
+    """يعيد معلومات ملف فيديو واحد (الاسم، النوع)."""
+
+    service = get_drive_service()
+
+    return service.files().get(
+        fileId=file_id,
+        fields="id, name, mimeType, size",
+    ).execute()
+
+
+def download_video(file_id):
+    """يحمّل ملف فيديو من Drive ويعيده كـ BytesIO."""
+
+    service = get_drive_service()
+
+    request = service.files().get_media(fileId=file_id)
+
+    buffer = io.BytesIO()
+    downloader = MediaIoBaseDownload(buffer, request)
+
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+
+    buffer.seek(0)
+    return buffer
+
+
+def delete_video(file_id):
+    """يحذف ملف فيديو من Drive نهائيًا."""
+
+    service = get_drive_service()
+    service.files().delete(fileId=file_id).execute()

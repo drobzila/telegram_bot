@@ -5,6 +5,7 @@ import threading
 from flask import Flask
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     MessageHandler,
     filters,
@@ -18,6 +19,11 @@ from handlers.help import help_command
 from handlers.status import status
 from handlers.admin import users_list
 from handlers.messages import message_router
+from handlers.drive_upload import (
+    on_drive_select,
+    on_drive_title_choice,
+    on_drive_visibility,
+)
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -52,6 +58,16 @@ async def run_bot():
             filters.TEXT | filters.VIDEO,
             message_router,
         )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(on_drive_select, pattern=r"^drive_select:")
+    )
+    application.add_handler(
+        CallbackQueryHandler(on_drive_title_choice, pattern=r"^drive_title:")
+    )
+    application.add_handler(
+        CallbackQueryHandler(on_drive_visibility, pattern=r"^drive_visibility:")
     )
 
     async with application:

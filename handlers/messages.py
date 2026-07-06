@@ -7,11 +7,17 @@ from services.upload_service import UploadService
 
 from handlers.status import status
 from handlers.upload import start_upload
+from handlers.drive_upload import (
+    show_drive_videos,
+    handle_custom_title_text,
+)
 
 from states.state_names import (
+    IDLE,
     WAITING_VIDEO,
     WAITING_TITLE,
     WAITING_DESCRIPTION,
+    WAITING_DRIVE_CUSTOM_TITLE,
 )
 
 
@@ -21,7 +27,32 @@ async def message_router(
 ):
 
     user_id = update.effective_user.id
+    text = update.message.text
+
+    # ----------------------------------
+    # القائمة الرئيسية (أولوية قصوى)
+    # تعمل دائمًا حتى لو كان المستخدم عالقًا في حالة انتظار سابقة
+    # ----------------------------------
+
+    if text == "📤 رفع فيديو":
+        set_state(user_id, IDLE)
+        return await start_upload(update, context)
+
+    if text == "📊 الحالة":
+        set_state(user_id, IDLE)
+        return await status(update, context)
+
+    if text == "📂 Google Drive":
+        return await show_drive_videos(update, context)
+
     state = get_state(user_id)
+
+    # ----------------------------------
+    # انتظار كتابة عنوان جديد (تدفق الرفع من Drive)
+    # ----------------------------------
+
+    if state == WAITING_DRIVE_CUSTOM_TITLE:
+        return await handle_custom_title_text(update, context)
 
     # ----------------------------------
     # انتظار إرسال الفيديو
@@ -88,16 +119,8 @@ async def message_router(
         return
 
     # ----------------------------------
-    # القائمة الرئيسية
+    # أي رسالة أخرى غير متوقعة
     # ----------------------------------
-
-    text = update.message.text
-
-    if text == "📤 رفع فيديو":
-        return await start_upload(update, context)
-
-    if text == "📊 الحالة":
-        return await status(update, context)
 
     await update.message.reply_text(
         "❓ اختر أحد الأزرار الموجودة في القائمة."

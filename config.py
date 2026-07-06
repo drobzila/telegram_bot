@@ -15,6 +15,12 @@ GOOGLE_REFRESH_TOKEN = os.getenv("GOOGLE_REFRESH_TOKEN")
 # Render يوفر هذا المتغير تلقائياً؛ محلياً سيأخذ القيمة الافتراضية 10000
 PORT = int(os.getenv("PORT", 10000))
 
+# معرفات تيليجرام للمشرفين المسموح لهم برؤية قائمة المستخدمين (مفصولة بفواصل)
+# مثال: ADMIN_IDS=123456789,987654321
+ADMIN_IDS = [
+    int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()
+]
+
 if not BOT_TOKEN:
     raise ValueError("❌ لم يتم تعيين BOT_TOKEN في ملف .env")
 

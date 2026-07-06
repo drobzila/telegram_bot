@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import threading
 
@@ -45,7 +44,7 @@ def run_web_server():
     web_app.run(host="0.0.0.0", port=PORT)
 
 
-async def run_bot():
+def build_application():
     application = Application.builder().token(BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
@@ -70,16 +69,7 @@ async def run_bot():
         CallbackQueryHandler(on_drive_visibility, pattern=r"^drive_visibility:")
     )
 
-    async with application:
-        await application.start()
-        await application.updater.start_polling(drop_pending_updates=True)
-        logger.info("🚀 البوت بدأ العمل...")
-        try:
-            # يبقي البوت يعمل إلى ما لا نهاية حتى يتم إيقاف الخدمة
-            await asyncio.Event().wait()
-        finally:
-            await application.updater.stop()
-            await application.stop()
+    return application
 
 
 def main():
@@ -90,8 +80,14 @@ def main():
         daemon=True
     ).start()
 
-    # asyncio.run() تُنشئ حلقة أحداث جديدة بمعزل عن أي حلقة قديمة/مفقودة
-    asyncio.run(run_bot())
+    application = build_application()
+
+    logger.info("🚀 البوت بدأ العمل...")
+
+    # run_polling() تُدير حلقة الأحداث بنفسها، وتسجّل تلقائيًا معالجات
+    # إشارات الإيقاف (SIGTERM/SIGINT) لضمان إغلاق نظيف عند إعادة النشر،
+    # وهذا يمنع تعارض "Conflict: terminated by other getUpdates request"
+    application.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":

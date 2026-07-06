@@ -2,6 +2,7 @@ import asyncio
 import logging
 import threading
 
+from database.db import initialize_database
 from flask import Flask
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -122,6 +123,16 @@ async def run_bot():
 
 
 def main():
+    
+        initialize_database()
+
+        threading.Thread(
+            target=run_web_server,
+            daemon=True
+    ).start()
+
+    asyncio.run(run_bot())
+    
     # تشغيل خادم Flask في خيط منفصل حتى لا يوقف Render الخدمة
     threading.Thread(target=run_web_server, daemon=True).start()
     # asyncio.run() تُنشئ حلقة أحداث جديدة بمعزل عن أي حلقة قديمة/مفقودة،

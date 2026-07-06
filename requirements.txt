@@ -1,0 +1,6 @@
+python-telegram-bot>=20.7,<21
+Flask>=3.0
+python-dotenv>=1.0
+google-auth>=2.29
+google-auth-oauthlib>=1.2
+google-api-python-client>=2.126

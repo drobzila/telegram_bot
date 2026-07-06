@@ -25,7 +25,9 @@ def _get_credentials():
         token_uri="https://oauth2.googleapis.com/token",
         client_id=GOOGLE_CLIENT_ID,
         client_secret=GOOGLE_CLIENT_SECRET,
-        scopes=SCOPES,
+        # لا نمرر scopes هنا عمداً: عند تجديد access token عبر refresh_token
+        # لا حاجة لإرسال scope، وإرساله قد يسبب خطأ invalid_scope إن لم يطابق
+        # حرفياً ما مُنح أثناء التصريح الأول.
     )
     creds.refresh(Request())
     return creds

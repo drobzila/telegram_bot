@@ -35,9 +35,50 @@ PRIVACY_LABELS = {
     "public": "🌍 عام",
 }
 
+PAGE_SIZE = 20
+MAX_BUTTON_LABEL = 60
+
 
 def _strip_extension(filename):
     return os.path.splitext(filename)[0]
+
+
+def _truncate_label(name):
+    if len(name) > MAX_BUTTON_LABEL:
+        return name[:MAX_BUTTON_LABEL - 1] + "…"
+    return name
+
+
+def _build_videos_keyboard(videos, offset):
+
+    page = videos[offset:offset + PAGE_SIZE]
+
+    keyboard = [
+        [InlineKeyboardButton(
+            _truncate_label(video["name"]),
+            callback_data=f"drive_select:{video['id']}"
+        )]
+        for video in page
+    ]
+
+    nav_row = []
+
+    if offset > 0:
+        nav_row.append(InlineKeyboardButton(
+            "◀️ السابق",
+            callback_data=f"drive_page:{max(0, offset - PAGE_SIZE)}"
+        ))
+
+    if offset + PAGE_SIZE < len(videos):
+        nav_row.append(InlineKeyboardButton(
+            "التالي ▶️",
+            callback_data=f"drive_page:{offset + PAGE_SIZE}"
+        ))
+
+    if nav_row:
+        keyboard.append(nav_row)
+
+    return InlineKeyboardMarkup(keyboard)
 
 
 # ----------------------------------------------------------------
@@ -66,17 +107,42 @@ async def show_drive_videos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    keyboard = [
-        [InlineKeyboardButton(
-            video["name"],
-            callback_data=f"drive_select:{video['id']}"
-        )]
-        for video in videos
-    ]
+    total = len(videos)
+    header = "📂 اختر فيديو للرفع إلى يوتيوب:"
+
+    if total > PAGE_SIZE:
+        header += f"\n\n({total} فيديو، بحد {PAGE_SIZE} في كل صفحة)"
 
     await update.message.reply_text(
-        "📂 اختر فيديو للرفع إلى يوتيوب:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        header,
+        reply_markup=_build_videos_keyboard(videos, offset=0),
+    )
+
+
+# ----------------------------------------------------------------
+# التنقل بين صفحات القائمة
+# ----------------------------------------------------------------
+
+async def on_drive_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    query = update.callback_query
+    await query.answer()
+
+    offset = int(query.data.split(":", 1)[1])
+
+    try:
+        videos = await asyncio.to_thread(drive_utils.list_videos)
+    except Exception as e:
+        logger.exception(e)
+        await query.edit_message_text("⚠️ تعذر الاتصال بـ Google Drive. حاول لاحقًا.")
+        return
+
+    if not videos:
+        await query.edit_message_text("📂 لا توجد فيديوهات في مجلد Drive حاليًا.")
+        return
+
+    await query.edit_message_reply_markup(
+        reply_markup=_build_videos_keyboard(videos, offset=offset)
     )
 
 

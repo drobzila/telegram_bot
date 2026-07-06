@@ -22,6 +22,7 @@ from handlers.drive_upload import (
     on_drive_select,
     on_drive_title_choice,
     on_drive_visibility,
+    on_drive_page,
 )
 
 logging.basicConfig(
@@ -67,6 +68,9 @@ def build_application():
     )
     application.add_handler(
         CallbackQueryHandler(on_drive_visibility, pattern=r"^drive_visibility:")
+    )
+    application.add_handler(
+        CallbackQueryHandler(on_drive_page, pattern=r"^drive_page:")
     )
 
     return application

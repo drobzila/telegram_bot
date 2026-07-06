@@ -46,7 +46,7 @@ def initialize_database():
     CREATE TABLE IF NOT EXISTS oauth_tokens (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
 
-        user_id INTEGER NOT NULL,
+        user_id INTEGER UNIQUE NOT NULL,
 
         access_token TEXT,
 

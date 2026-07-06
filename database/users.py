@@ -119,3 +119,18 @@ def delete_user(telegram_id):
 
     conn.commit()
     conn.close()
+
+def set_youtube_connected(telegram_id):
+    conn = get_connection()
+
+    conn.execute(
+        """
+        UPDATE users
+        SET youtube_connected=1
+        WHERE telegram_id=?
+        """,
+        (telegram_id,),
+    )
+
+    conn.commit()
+    conn.close()

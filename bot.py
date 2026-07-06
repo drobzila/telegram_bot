@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import threading
 
@@ -75,18 +76,31 @@ async def count(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"⚠️ حدث خطأ أثناء قراءة المجلد:\n{e}")
 
 
+async def run_bot():
+    application = Application.builder().token(BOT_TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("status", status))
+    application.add_handler(CommandHandler("count", count))
+
+    async with application:
+        await application.start()
+        await application.updater.start_polling(drop_pending_updates=True)
+        logger.info("🚀 البوت بدأ العمل...")
+        try:
+            # يبقي البوت يعمل إلى ما لا نهاية حتى يتم إيقاف الخدمة
+            await asyncio.Event().wait()
+        finally:
+            await application.updater.stop()
+            await application.stop()
+
+
 def main():
     # تشغيل خادم Flask في خيط منفصل حتى لا يوقف Render الخدمة
     threading.Thread(target=run_web_server, daemon=True).start()
-
-    app = Application.builder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("status", status))
-    app.add_handler(CommandHandler("count", count))
-
-    logger.info("🚀 البوت بدأ العمل...")
-    app.run_polling(drop_pending_updates=True)
+    # asyncio.run() تُنشئ حلقة أحداث جديدة بمعزل عن أي حلقة قديمة/مفقودة،
+    # وهذا يتجنب مشكلة "no current event loop" الموجودة في بايثون 3.14+
+    asyncio.run(run_bot())
 
 
 if __name__ == "__main__":

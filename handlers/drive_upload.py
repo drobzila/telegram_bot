@@ -11,7 +11,7 @@ from telegram import (
 from telegram.ext import ContextTypes
 
 import drive_utils
-import youtube_utils
+from services import youtube_utils
 
 from database.states import (
     get_state_data,
@@ -50,7 +50,6 @@ def _truncate_label(name):
 
 
 def _build_videos_keyboard(videos, offset):
-
     page = videos[offset:offset + PAGE_SIZE]
 
     keyboard = [
@@ -62,7 +61,6 @@ def _build_videos_keyboard(videos, offset):
     ]
 
     nav_row = []
-
     if offset > 0:
         nav_row.append(InlineKeyboardButton(
             "◀️ السابق",
@@ -86,8 +84,8 @@ def _build_videos_keyboard(videos, offset):
 # ----------------------------------------------------------------
 
 async def show_drive_videos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     user_id = update.effective_user.id
+    clear_state(user_id)
     set_state(user_id, IDLE)
 
     await update.message.reply_text("⏳ جاري جلب الفيديوهات من Google Drive...")
@@ -96,15 +94,11 @@ async def show_drive_videos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         videos = await asyncio.to_thread(drive_utils.list_videos)
     except Exception as e:
         logger.exception(e)
-        await update.message.reply_text(
-            "⚠️ تعذر الاتصال بـ Google Drive. حاول لاحقًا."
-        )
+        await update.message.reply_text("⚠️ تعذر الاتصال بـ Google Drive. حاول لاحقًا.")
         return
 
     if not videos:
-        await update.message.reply_text(
-            "📂 لا توجد فيديوهات في مجلد Drive حاليًا."
-        )
+        await update.message.reply_text("📂 لا توجد فيديوهات in مجلد Drive حاليًا.")
         return
 
     total = len(videos)
@@ -124,7 +118,6 @@ async def show_drive_videos(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ----------------------------------------------------------------
 
 async def on_drive_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     query = update.callback_query
     await query.answer()
 
@@ -151,7 +144,6 @@ async def on_drive_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ----------------------------------------------------------------
 
 async def on_drive_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     query = update.callback_query
     await query.answer()
 
@@ -174,16 +166,23 @@ async def on_drive_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
     )
 
+    # 1️⃣ الطباعة المطلوبة الأولى: SELECT SAVE وما بعدها مباشرة
+    print("SELECT SAVE:", {
+        "drive_file_id": info["id"],
+        "drive_file_name": info["name"],
+    })
+    print(get_state_data(user_id))
+
     current_title = _strip_extension(info["name"])
 
     keyboard = [
         [InlineKeyboardButton(
             f"✅ إبقاء العنوان الحالي ({current_title})",
-            callback_data="drive_title:keep"
+            callback_data=f"drive_title:keep:{file_id}"
         )],
         [InlineKeyboardButton(
             "✏️ كتابة عنوان جديد",
-            callback_data="drive_title:custom"
+            callback_data=f"drive_title:custom:{file_id}"
         )],
     ]
 
@@ -199,43 +198,51 @@ async def on_drive_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ----------------------------------------------------------------
 
 async def on_drive_title_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     query = update.callback_query
     await query.answer()
 
     user_id = update.effective_user.id
-    choice = query.data.split(":", 1)[1]
+    
+    # 2️⃣ الطباعة المطلوبة الثانية: TITLE BEFORE في أول الدالة
+    print("TITLE BEFORE:", get_state_data(user_id))
+
+    parts = query.data.split(":")
+    choice = parts[1]
+    file_id = parts[2]
 
     data = get_state_data(user_id)
 
-    if not data.get("drive_file_id"):
-        await query.edit_message_text(
-            "⚠️ انتهت صلاحية هذا الطلب. ابدأ من جديد عبر زر Google Drive."
-        )
-        return
+    if not data or not data.get("drive_file_id"):
+        try:
+            info = await asyncio.to_thread(drive_utils.get_video_info, file_id)
+            data = {
+                "drive_file_id": info["id"],
+                "drive_file_name": info["name"],
+                "drive_mime_type": info.get("mimeType", "video/*"),
+            }
+            set_state_data(user_id, data)
+        except Exception as e:
+            logger.exception(e)
+            await query.edit_message_text("⚠️ انتهت صلاحية الطلب وتعذر استعادة معلومات الفيديو.")
+            return
 
     if choice == "custom":
         set_state(user_id, WAITING_DRIVE_CUSTOM_TITLE)
-
-        await query.edit_message_text(
-            "✏️ أرسل العنوان الجديد الآن كنص."
-        )
+        await query.edit_message_text("✏️ أرسل العنوان الجديد الآن كرسالة نصية.")
         return
 
-    # choice == "keep"
     title = _strip_extension(data["drive_file_name"])
-
     data["title"] = title
     set_state_data(user_id, data)
 
-    await query.edit_message_text(f"✅ العنوان: {title}")
+    # 3️⃣ الطباعة المطلوبة الثالثة: TITLE AFTER بعد set_state_data
+    print("TITLE AFTER:", get_state_data(user_id))
 
+    await query.edit_message_text(f"✅ العنوان: {title}")
     await _ask_visibility(update, context)
 
 
 async def handle_custom_title_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """يُستدعى من message_router عندما تكون الحالة WAITING_DRIVE_CUSTOM_TITLE."""
-
     user_id = update.effective_user.id
     title = update.message.text
 
@@ -245,7 +252,7 @@ async def handle_custom_title_text(update: Update, context: ContextTypes.DEFAULT
 
     data = get_state_data(user_id)
 
-    if not data.get("drive_file_id"):
+    if not data or not data.get("drive_file_id"):
         await update.message.reply_text(
             "⚠️ انتهت صلاحية هذا الطلب. ابدأ من جديد عبر زر Google Drive."
         )
@@ -257,7 +264,6 @@ async def handle_custom_title_text(update: Update, context: ContextTypes.DEFAULT
     set_state(user_id, IDLE)
 
     await update.message.reply_text(f"✅ العنوان: {title}")
-
     await _ask_visibility(update, context)
 
 
@@ -266,14 +272,16 @@ async def handle_custom_title_text(update: Update, context: ContextTypes.DEFAULT
 # ----------------------------------------------------------------
 
 async def _ask_visibility(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    data = get_state_data(user_id)
+    file_id = data.get("drive_file_id", "")
 
     keyboard = [
-        [InlineKeyboardButton(label, callback_data=f"drive_visibility:{value}")]
+        [InlineKeyboardButton(label, callback_data=f"drive_visibility:{value}:{file_id}")]
         for value, label in PRIVACY_LABELS.items()
     ]
 
     message = update.effective_message
-
     await message.reply_text(
         "🔐 اختر مستوى الخصوصية على يوتيوب:",
         reply_markup=InlineKeyboardMarkup(keyboard),
@@ -285,25 +293,43 @@ async def _ask_visibility(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ----------------------------------------------------------------
 
 async def on_drive_visibility(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     query = update.callback_query
     await query.answer()
 
     user_id = update.effective_user.id
-    privacy_status = query.data.split(":", 1)[1]
+    
+    # 4️⃣ الطباعة المطلوبة الرابعة: VISIBILITY في أول الدالة
+    print("VISIBILITY:", get_state_data(user_id))
+
+    parts = query.data.split(":")
+    privacy_status = parts[1]
+    file_id_from_callback = parts[2] if len(parts) > 2 else None
 
     data = get_state_data(user_id)
-
-    file_id = data.get("drive_file_id")
-    file_name = data.get("drive_file_name")
-    mime_type = data.get("drive_mime_type", "video/*")
-    title = data.get("title") or _strip_extension(file_name or "video")
-
+    file_id = file_id_from_callback or data.get("drive_file_id")
+    
     if not file_id:
         await query.edit_message_text(
             "⚠️ انتهت صلاحية هذا الطلب. ابدأ من جديد عبر زر Google Drive."
         )
         return
+
+    if not data or not data.get("drive_file_id"):
+        try:
+            info = await asyncio.to_thread(drive_utils.get_video_info, file_id)
+            data = {
+                "drive_file_id": info["id"],
+                "drive_file_name": info["name"],
+                "drive_mime_type": info.get("mimeType", "video/*"),
+                "title": _strip_extension(info["name"])
+            }
+        except Exception:
+            await query.edit_message_text("⚠️ تعذر الوصول للملف. ابدأ العملية من جديد.")
+            return
+
+    file_name = data.get("drive_file_name")
+    mime_type = data.get("drive_mime_type", "video/*")
+    title = data.get("title") or _strip_extension(file_name or "video")
 
     await query.edit_message_text(
         f"⏳ جاري رفع \"{title}\" إلى يوتيوب...\n"
@@ -311,6 +337,13 @@ async def on_drive_visibility(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
 
     user = get_user(user_id)
+
+    if not user:
+        await query.edit_message_text(
+            "⚠️ يجب عليك بدء البوت أولاً باستخدام الأمر /start قبل الرفع."
+        )
+        return
+
     video_id = create_video(user["id"])
 
     update_video(
@@ -326,6 +359,7 @@ async def on_drive_visibility(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         youtube_video_id = await asyncio.to_thread(
             youtube_utils.upload_video,
+            user_id,
             buffer,
             title,
             "",
@@ -335,7 +369,6 @@ async def on_drive_visibility(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     except Exception as e:
         logger.exception(e)
-
         update_video(video_id, status="failed")
         clear_state(user_id)
 
@@ -352,23 +385,17 @@ async def on_drive_visibility(update: Update, context: ContextTypes.DEFAULT_TYPE
         uploaded_at=datetime.now(timezone.utc).isoformat(),
     )
 
-    try:
-        await asyncio.to_thread(drive_utils.delete_video, file_id)
-        drive_deleted = True
-    except Exception as e:
-        logger.exception(e)
-        drive_deleted = False
+    await asyncio.to_thread(
+        drive_utils.log_video_for_manual_deletion, file_id, file_name
+    )
+    drive_deleted = False
 
     clear_state(user_id)
 
     text = (
         "✅ تم رفع الفيديو بنجاح!\n\n"
         f"🔗 https://youtu.be/{youtube_video_id}\n\n"
+        "📝 تم تسجيل اسم الملف في Drive ليتم حذفه يدوياً لاحقاً."
     )
-
-    if drive_deleted:
-        text += "🗑️ تم حذف الفيديو من Google Drive."
-    else:
-        text += "⚠️ تم الرفع لكن تعذر حذف الفيديو من Drive، احذفه يدويًا."
 
     await query.message.reply_text(text)

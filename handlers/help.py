@@ -9,7 +9,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/start\n"
         "/help\n"
         "/status\n"
-        "/users"
+        "/users\n"
+        "/pending"
     )
 
     await update.message.reply_text(text)

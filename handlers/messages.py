@@ -6,6 +6,7 @@ from database.videos import update_video
 from services.upload_service import UploadService
 
 from handlers.status import status
+from handlers.login import login
 from handlers.upload import start_upload
 from handlers.drive_upload import (
     show_drive_videos,
@@ -44,6 +45,9 @@ async def message_router(
 
     if text == "📂 Google Drive":
         return await show_drive_videos(update, context)
+
+    if text == "🔗 ربط YouTube":
+        return await login(update, context)
 
     state = get_state(user_id)
 

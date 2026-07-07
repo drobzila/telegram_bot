@@ -5,13 +5,9 @@ def main_keyboard():
 
     keyboard = [
 
-        ["📤 رفع فيديو"],
+        ["📤 رفع فيديو", "📂 Google Drive"],
 
-        ["🔗 ربط YouTube", "📂 Google Drive"],
-
-        ["⚙️ الإعدادات", "👤 حسابي"],
-
-        ["📊 الحالة"]
+        ["🔗 ربط YouTube", "📊 الحالة"],
 
     ]
 

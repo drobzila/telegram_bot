@@ -1,69 +1,46 @@
 from database.db import get_connection
 
-
 def create_video(user_id):
-    conn = get_connection()
-
-    cursor = conn.execute(
-        """
-        INSERT INTO videos(user_id)
-        VALUES(?)
-        """,
-        (user_id,)
-    )
-
-    conn.commit()
-
-    video_id = cursor.lastrowid
-
-    conn.close()
-
-    return video_id
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO videos (user_id)
+                VALUES (%s)
+                RETURNING id
+            """, (user_id,))
+            
+            row = cur.fetchone()
+            return row["id"] if row else None
 
 
 def get_video(video_id):
-    conn = get_connection()
-
-    row = conn.execute(
-        """
-        SELECT *
-        FROM videos
-        WHERE id=?
-        """,
-        (video_id,)
-    ).fetchone()
-
-    conn.close()
-
-    return row
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT *
+                FROM videos
+                WHERE id = %s
+            """, (video_id,))
+            return cur.fetchone()
 
 
 def update_video(video_id, **kwargs):
-
     if not kwargs:
         return
 
-    conn = get_connection()
-
     fields = []
-
     values = []
 
     for key, value in kwargs.items():
-        fields.append(f"{key}=?")
+        fields.append(f"{key} = %s")
         values.append(value)
 
     values.append(video_id)
 
-    conn.execute(
-        f"""
-        UPDATE videos
-        SET {', '.join(fields)}
-        WHERE id=?
-        """,
-        values
-    )
-
-    conn.commit()
-
-    conn.close()
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"""
+                UPDATE videos
+                SET {', '.join(fields)}
+                WHERE id = %s
+            """, values)

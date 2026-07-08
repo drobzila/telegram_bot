@@ -223,6 +223,14 @@ def build_application():
         )
     )
 
+    # زر البدء الإرشادي: /start -> ربط YouTube
+    application.add_handler(
+        CallbackQueryHandler(
+            login,
+            pattern=r"^guided_login$"
+        )
+    )
+
     application.add_handler(
         CallbackQueryHandler(
             sync_count_handler,

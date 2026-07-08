@@ -372,10 +372,27 @@ async def on_drive_visibility(update: Update, context: ContextTypes.DEFAULT_TYPE
         update_video(video_id, status="failed")
         clear_state(user_id)
 
-        await query.message.reply_text(
-            "❌ فشل رفع الفيديو إلى يوتيوب. لم يتم حذف أي شيء من Drive.\n"
-            f"تفاصيل الخطأ: {e}"
-        )
+        error_text = str(e)
+        auth_error_signals = [
+            "unauthorized_client",
+            "invalid_grant",
+            "invalid_client",
+            "Token has been expired or revoked",
+            "لم يتم ربط حساب YouTube",
+        ]
+
+        if any(signal in error_text for signal in auth_error_signals):
+            await query.message.reply_text(
+                "❌ فشل رفع الفيديو لأن ربط حساب YouTube انتهت صلاحيته أو تم إلغاؤه.\n\n"
+                "🔗 اضغط على زر \"ربط YouTube\" في القائمة الرئيسية لإعادة الربط، "
+                "ثم أعد المحاولة.\n\n"
+                "ℹ️ لم يتم حذف أي شيء من Drive."
+            )
+        else:
+            await query.message.reply_text(
+                "❌ فشل رفع الفيديو إلى يوتيوب. لم يتم حذف أي شيء من Drive.\n"
+                f"تفاصيل الخطأ: {error_text}"
+            )
         return
 
     update_video(

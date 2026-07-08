@@ -3,7 +3,7 @@ import threading
 import asyncio  # ضروري لإرسال الرسائل من الفلاسك إلى بيئة التليجرام غير المتزامنة
 
 from flask import Flask, request
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -172,8 +172,18 @@ def run_web_server():
     web_app.run(host="0.0.0.0", port=int(PORT), threaded=True)
 
 
+async def post_init(application: Application):
+    """يسجّل قائمة الأوامر المقترحة (الصندوق الذي يظهر عند كتابة /)."""
+    await application.bot.set_my_commands([
+        BotCommand("start", "بدء استخدام البوت"),
+        BotCommand("help", "عرض الأوامر المتاحة"),
+        BotCommand("status", "حالة حسابك"),
+        BotCommand("login", "ربط حساب YouTube"),
+    ])
+
+
 def build_application():
-    application = Application.builder().token(BOT_TOKEN).build()
+    application = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
     # تسجيل المعالجات للأوامر (Commands)
     application.add_handler(CommandHandler("start", start))

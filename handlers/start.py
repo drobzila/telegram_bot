@@ -1,4 +1,4 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.ext import ContextTypes
 from keyboards.main import main_keyboard
 
@@ -25,16 +25,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     step_text = (
         "🚀 للبدء، اتبع الخطوات التالية بالترتيب:\n\n"
-        "1️⃣ اربط حساب YouTube (اضغط الزر بالأسفل)\n"
+        "1️⃣ اضغط على زر \"🔗 ربط YouTube\" في القائمة بالأسفل\n"
         "2️⃣ بعد نجاح الربط، فعّل المزامنة التلقائية\n"
         "3️⃣ ابدأ برفع فيديوهاتك من Google Drive 🎬"
     )
 
-    keyboard = [
-        [InlineKeyboardButton("🔗 ربط حساب YouTube الآن", callback_data="guided_login")]
-    ]
-
-    await update.message.reply_text(
-        step_text,
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    await update.message.reply_text(step_text)

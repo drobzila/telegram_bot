@@ -6,7 +6,6 @@ from database.users import register_user
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     register_user(update.effective_user)
 
     text = (
@@ -18,16 +17,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "استخدم /help لمعرفة جميع الأوامر."
     )
 
+    await update.message.reply_text(text, reply_markup=main_keyboard())
+
     await update.message.reply_text(
-        text,
-        reply_markup=main_keyboard()
+        "🚀 للبدء:\n\n"
+        "1️⃣ اربط حساب YouTube من زر 🔗 ربط YouTube.\n"
+        "2️⃣ اضغط 🎬 إنشاء فيديو قرآن.\n"
+        "3️⃣ سيختار المولد آية عشوائية، ينشئ الفيديو، ثم يرفعه مباشرة إلى YouTube.\n\n"
+        "📂 Google Drive ما زال متاحًا للرفع اليدوي، لكنه لم يعد مطلوبًا لإنشاء فيديو قرآن."
     )
-
-    step_text = (
-        "🚀 للبدء، اتبع الخطوات التالية بالترتيب:\n\n"
-        "1️⃣ اضغط على زر \"🔗 ربط YouTube\" في القائمة بالأسفل\n"
-        "2️⃣ بعد نجاح الربط، فعّل المزامنة التلقائية\n"
-        "3️⃣ ابدأ برفع فيديوهاتك من Google Drive 🎬"
-    )
-
-    await update.message.reply_text(step_text)

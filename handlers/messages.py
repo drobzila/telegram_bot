@@ -8,6 +8,7 @@ from services.upload_service import UploadService
 from handlers.status import status
 from handlers.login import login
 from handlers.upload import start_upload
+from handlers.generate import show_generate_options
 from handlers.drive_upload import (
     show_drive_videos,
     handle_custom_title_text,
@@ -22,18 +23,13 @@ from states.state_names import (
 )
 
 
-async def message_router(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
+async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
 
-    # ----------------------------------
-    # القائمة الرئيسية (أولوية قصوى)
-    # تعمل دائمًا حتى لو كان المستخدم عالقًا في حالة انتظار سابقة
-    # ----------------------------------
+    if text == "🎬 إنشاء فيديو قرآن":
+        set_state(user_id, IDLE)
+        return await show_generate_options(update, context)
 
     if text == "📤 رفع فيديو":
         set_state(user_id, IDLE)
@@ -51,81 +47,30 @@ async def message_router(
 
     state = get_state(user_id)
 
-    # ----------------------------------
-    # انتظار كتابة عنوان جديد (تدفق الرفع من Drive)
-    # ----------------------------------
-
     if state == WAITING_DRIVE_CUSTOM_TITLE:
         return await handle_custom_title_text(update, context)
 
-    # ----------------------------------
-    # انتظار إرسال الفيديو
-    # ----------------------------------
-
     if state == WAITING_VIDEO:
-
         if update.message.video is None:
-
-            await update.message.reply_text(
-                "❌ الرجاء إرسال فيديو."
-            )
-
+            await update.message.reply_text("❌ الرجاء إرسال فيديو.")
             return
 
-        telegram_video = update.message.video
-
-        UploadService.receive_video(
-            user_id,
-            telegram_video
-        )
-
+        UploadService.receive_video(user_id, update.message.video)
         await update.message.reply_text(
-            "✅ تم استلام الفيديو.\n\n"
-            "📝 الآن أرسل عنوان الفيديو."
+            "✅ تم استلام الفيديو.\n\n📝 الآن أرسل عنوان الفيديو."
         )
-
         return
 
-    # ----------------------------------
-    # انتظار العنوان
-    # ----------------------------------
-
     if state == WAITING_TITLE:
-
         title = update.message.text
-
         if not title:
-
-            await update.message.reply_text(
-                "📝 أرسل عنوانًا نصيًا."
-            )
-
+            await update.message.reply_text("📝 أرسل عنوانًا نصيًا.")
             return
 
         data = get_state_data(user_id)
-
-        update_video(
-            data["video_id"],
-            title=title,
-            status="waiting_description"
-        )
-
-        set_state(
-            user_id,
-            WAITING_DESCRIPTION
-        )
-
-        await update.message.reply_text(
-            "✍️ ممتاز.\n\n"
-            "الآن أرسل وصف الفيديو."
-        )
-
+        update_video(data["video_id"], title=title, status="waiting_description")
+        set_state(user_id, WAITING_DESCRIPTION)
+        await update.message.reply_text("✍️ ممتاز.\n\nالآن أرسل وصف الفيديو.")
         return
 
-    # ----------------------------------
-    # أي رسالة أخرى غير متوقعة
-    # ----------------------------------
-
-    await update.message.reply_text(
-        "❓ اختر أحد الأزرار الموجودة في القائمة."
-    )
+    await update.message.reply_text("❓ اختر أحد الأزرار الموجودة في القائمة.")

@@ -25,6 +25,7 @@ from handlers.status import status
 from handlers.admin import users_list, pending_deletions_list
 from handlers.messages import message_router
 from handlers.upload import upload_to_youtube
+from handlers.generate import generate_random_video
 from handlers.drive_upload import (
     on_drive_select,
     on_drive_title_choice,
@@ -41,12 +42,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
-# ---------- خادم صغير لإبقاء Render حيًّا ومعالجة الـ OAuth ----------
 web_app = Flask(__name__)
-
 oauth_flows = {}
-
 tg_application = None
 tg_loop = None
 
@@ -60,24 +57,9 @@ def health_check():
 def oauth_login(user_id):
     try:
         flow = build_flow()
-
-        auth_url, state = flow.authorization_url(
-            access_type="offline",
-            prompt="consent",
-        )
-
-        oauth_flows[state] = {
-            "user_id": user_id,
-            "flow": flow,
-        }
-
-        return f"""
-        <html>
-            <script>
-                window.location="{auth_url}";
-            </script>
-        </html>
-        """
+        auth_url, state = flow.authorization_url(access_type="offline", prompt="consent")
+        oauth_flows[state] = {"user_id": user_id, "flow": flow}
+        return f'<html><script>window.location="{auth_url}";</script></html>'
     except Exception:
         import traceback
         traceback.print_exc()
@@ -88,19 +70,15 @@ def oauth_login(user_id):
 def oauth_callback():
     try:
         print("🔍 Original Request URL:", request.url)
-
         state = request.args.get("state")
         data = oauth_flows.pop(state, None)
-
         if data is None:
             return "Invalid state", 400
 
         telegram_id = data["user_id"]
         flow = data["flow"]
-
         authorization_response = request.url.replace("http://", "https://", 1)
         flow.fetch_token(authorization_response=authorization_response)
-
         credentials = flow.credentials
 
         save_token(
@@ -109,20 +87,13 @@ def oauth_callback():
             credentials.refresh_token,
             str(credentials.expiry),
         )
-
         set_youtube_connected(telegram_id)
 
         ok, message = test_youtube_connection(telegram_id)
-
         if tg_application and tg_loop:
             if ok:
                 text_msg = f"✅ تم ربط حساب YouTube بنجاح.\n\n📺 **القناة:** {message}"
-                keyboard = [[
-                    InlineKeyboardButton(
-                        "⚡ تفعيل المزامنة",
-                        callback_data="enable_sync"
-                    )
-                ]]
+                keyboard = [[InlineKeyboardButton("⚡ تفعيل المزامنة", callback_data="enable_sync")]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
             else:
                 text_msg = f"❌ فشل ربط حساب YouTube.\n\n⚠️ **السبب:** {message}"
@@ -138,10 +109,7 @@ def oauth_callback():
                 tg_loop,
             )
 
-        return """
-        <h2>✅ تم معالجة طلب الربط بنجاح</h2>
-        <p>يمكنك الآن العودة إلى تطبيق Telegram واستخدام البوت بشكل طبيعي.</p>
-        """
+        return "<h2>✅ تم معالجة طلب الربط بنجاح</h2><p>يمكنك العودة إلى Telegram.</p>"
     except Exception:
         import traceback
         traceback.print_exc()
@@ -162,12 +130,10 @@ async def post_init(application: Application):
 
 
 async def log_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """يسجل كل تحديث يصل من Telegram قبل تمريره للمعالجات."""
     try:
         user = update.effective_user
         chat = update.effective_chat
         message = update.effective_message
-
         update_type = "unknown"
         if update.message:
             update_type = "message"
@@ -191,7 +157,6 @@ async def log_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    """يسجل أي استثناء يحدث داخل معالجات Telegram."""
     logger.error("❌ TELEGRAM HANDLER ERROR", exc_info=context.error)
     if update is not None:
         logger.error("❌ Failed update: %r", update)
@@ -200,10 +165,8 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 def build_application():
     application = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
-    # هذا المعالج يجب أن يكون أول معالج لنسجل كل تحديث يصل قبل المعالجة.
     application.add_handler(MessageHandler(filters.ALL, log_update), group=-100)
     application.add_handler(CallbackQueryHandler(log_update), group=-100)
-
     application.add_error_handler(error_handler)
 
     application.add_handler(CommandHandler("start", start))
@@ -213,38 +176,16 @@ def build_application():
     application.add_handler(CommandHandler("users", users_list))
     application.add_handler(CommandHandler("pending", pending_deletions_list))
 
-    application.add_handler(
-        MessageHandler(
-            filters.VIDEO,
-            upload_to_youtube,
-        )
-    )
+    application.add_handler(MessageHandler(filters.VIDEO, upload_to_youtube))
+    application.add_handler(MessageHandler(filters.TEXT, message_router))
 
-    application.add_handler(
-        MessageHandler(
-            filters.TEXT,
-            message_router,
-        )
-    )
-
+    application.add_handler(CallbackQueryHandler(generate_random_video, pattern=r"^generate:(private|unlisted|public)$"))
     application.add_handler(CallbackQueryHandler(on_drive_select, pattern=r"^drive_select:"))
     application.add_handler(CallbackQueryHandler(on_drive_title_choice, pattern=r"^drive_title:"))
     application.add_handler(CallbackQueryHandler(on_drive_visibility, pattern=r"^drive_visibility:"))
     application.add_handler(CallbackQueryHandler(on_drive_page, pattern=r"^drive_page:"))
-
-    application.add_handler(
-        CallbackQueryHandler(
-            sync_handler,
-            pattern=r"^enable_sync$"
-        )
-    )
-
-    application.add_handler(
-        CallbackQueryHandler(
-            sync_count_handler,
-            pattern=r"^sync_count:"
-        )
-    )
+    application.add_handler(CallbackQueryHandler(sync_handler, pattern=r"^enable_sync$"))
+    application.add_handler(CallbackQueryHandler(sync_count_handler, pattern=r"^sync_count:"))
 
     return application
 
@@ -252,14 +193,8 @@ def build_application():
 def main():
     global tg_application, tg_loop
     initialize_database()
-
-    threading.Thread(
-        target=run_web_server,
-        daemon=True,
-    ).start()
-
+    threading.Thread(target=run_web_server, daemon=True).start()
     tg_application = build_application()
-
     logger.info("🚀 البوت بدأ العمل واستقبال التحديثات...")
 
     try:

@@ -2,14 +2,17 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from config import ADMIN_IDS
-from database.users import count_users
-from database.users import list_users
+from database.users import count_users, list_users, is_admin
 from database.pending_deletions import list_pending_deletions
+
+
+def _is_admin(update: Update) -> bool:
+    return update.effective_user.id in ADMIN_IDS or is_admin(update.effective_user.id)
 
 
 async def users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    if update.effective_user.id not in ADMIN_IDS:
+    if not _is_admin(update):
 
         await update.message.reply_text(
             "⛔ ليس لديك صلاحية."
@@ -55,7 +58,7 @@ async def users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def pending_deletions_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    if update.effective_user.id not in ADMIN_IDS:
+    if not _is_admin(update):
 
         await update.message.reply_text(
             "⛔ ليس لديك صلاحية."

@@ -1,38 +1,39 @@
+import asyncio
 import logging
 import threading
-import asyncio
 
 from flask import Flask, request
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, BotCommand, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
     CommandHandler,
+    ContextTypes,
     MessageHandler,
     filters,
-    ContextTypes,
 )
 
-from config import BOT_TOKEN, PORT
+from config import BASE_URL, BOT_TOKEN, PORT
 from database.db import initialize_database
+from database.oauth_states import consume_state, save_state
 from database.oauth_tokens import save_token
 from database.users import set_youtube_connected
 
-from handlers.start import start
-from handlers.login import login
-from handlers.help import help_command
-from handlers.status import status
-from handlers.admin import users_list, pending_deletions_list
-from handlers.messages import message_router
-from handlers.upload import upload_to_youtube
-from handlers.generate import generate_random_video
+from handlers.admin import pending_deletions_list, users_list
 from handlers.drive_upload import (
+    on_drive_page,
     on_drive_select,
     on_drive_title_choice,
     on_drive_visibility,
-    on_drive_page,
 )
-from handlers.sync import sync_handler, sync_count_handler
+from handlers.generate import generate_random_video
+from handlers.help import help_command
+from handlers.login import login
+from handlers.messages import message_router
+from handlers.start import start
+from handlers.status import status
+from handlers.sync import sync_count_handler, sync_handler
+from handlers.upload import upload_to_youtube
 from services.youtube_auth import build_flow
 from services.youtube_utils import test_youtube_connection
 
@@ -43,7 +44,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 web_app = Flask(__name__)
-oauth_flows = {}
 tg_application = None
 tg_loop = None
 
@@ -57,63 +57,92 @@ def health_check():
 def oauth_login(user_id):
     try:
         flow = build_flow()
-        auth_url, state = flow.authorization_url(access_type="offline", prompt="consent")
-        oauth_flows[state] = {"user_id": user_id, "flow": flow}
-        return f'<html><script>window.location="{auth_url}";</script></html>'
+        auth_url, state = flow.authorization_url(
+            access_type="offline",
+            prompt="consent",
+        )
+        save_state(state, user_id)
+        return f'<html><script>window.location.replace({auth_url!r});</script></html>'
     except Exception:
-        import traceback
-        traceback.print_exc()
-        return f"<pre>{traceback.format_exc()}</pre>", 500
+        logger.exception("Failed to start YouTube OAuth")
+        return "تعذر بدء ربط YouTube. تحقق من إعدادات OAuth.", 500
 
 
 @web_app.route("/oauth2callback")
 def oauth_callback():
     try:
-        print("🔍 Original Request URL:", request.url)
         state = request.args.get("state")
-        data = oauth_flows.pop(state, None)
-        if data is None:
-            return "Invalid state", 400
+        telegram_id = consume_state(state)
+        if telegram_id is None:
+            return "انتهت جلسة الربط أو أن رابط OAuth غير صالح. أعد المحاولة من Telegram.", 400
 
-        telegram_id = data["user_id"]
-        flow = data["flow"]
-        authorization_response = request.url.replace("http://", "https://", 1)
+        flow = build_flow(state=state)
+
+        # Use the public BASE_URL rather than the internal HTTP/proxy URL.
+        query_string = request.query_string.decode("utf-8")
+        authorization_response = f"{BASE_URL.rstrip('/')}{request.path}"
+        if query_string:
+            authorization_response += f"?{query_string}"
+
         flow.fetch_token(authorization_response=authorization_response)
         credentials = flow.credentials
+
+        if not credentials.token:
+            raise RuntimeError("لم يتم استلام access token من Google.")
+        if not credentials.refresh_token:
+            logger.warning("Google OAuth returned no refresh token for user %s", telegram_id)
 
         save_token(
             telegram_id,
             credentials.token,
             credentials.refresh_token,
-            str(credentials.expiry),
+            str(credentials.expiry) if credentials.expiry else None,
         )
-        set_youtube_connected(telegram_id)
 
-        ok, message = test_youtube_connection(telegram_id)
-        if tg_application and tg_loop:
+        ok, channel_name = test_youtube_connection(telegram_id)
+        set_youtube_connected(telegram_id, ok)
+
+        if tg_application and tg_loop and tg_loop.is_running():
             if ok:
-                text_msg = f"✅ تم ربط حساب YouTube بنجاح.\n\n📺 **القناة:** {message}"
-                keyboard = [[InlineKeyboardButton("⚡ تفعيل المزامنة", callback_data="enable_sync")]]
+                text_msg = (
+                    "✅ تم ربط حساب YouTube بنجاح.\n\n"
+                    f"📺 القناة: {channel_name}"
+                )
+                keyboard = [[
+                    InlineKeyboardButton(
+                        "⚡ تفعيل المزامنة",
+                        callback_data="enable_sync",
+                    )
+                ]]
                 reply_markup = InlineKeyboardMarkup(keyboard)
             else:
-                text_msg = f"❌ فشل ربط حساب YouTube.\n\n⚠️ **السبب:** {message}"
+                text_msg = (
+                    "❌ تم استلام حساب Google لكن فشل اختبار قناة YouTube.\n\n"
+                    f"⚠️ السبب: {channel_name}\n\n"
+                    "جرّب /login مرة أخرى إذا استمرت المشكلة."
+                )
                 reply_markup = None
 
-            asyncio.run_coroutine_threadsafe(
+            future = asyncio.run_coroutine_threadsafe(
                 tg_application.bot.send_message(
                     chat_id=telegram_id,
                     text=text_msg,
-                    parse_mode="Markdown",
                     reply_markup=reply_markup,
                 ),
                 tg_loop,
             )
+            future.add_done_callback(
+                lambda f: logger.error("Failed to send OAuth result to Telegram: %s", f.exception())
+                if f.exception() else None
+            )
 
-        return "<h2>✅ تم معالجة طلب الربط بنجاح</h2><p>يمكنك العودة إلى Telegram.</p>"
+        if ok:
+            return "<h2>✅ تم ربط حساب YouTube بنجاح</h2><p>يمكنك العودة إلى Telegram.</p>"
+        return "<h2>⚠️ تم استلام التفويض لكن فشل اختبار قناة YouTube</h2><p>يمكنك العودة إلى Telegram والمحاولة مرة أخرى.</p>"
+
     except Exception:
-        import traceback
-        traceback.print_exc()
-        return f"<pre>{traceback.format_exc()}</pre>", 500
+        logger.exception("YouTube OAuth callback failed")
+        return "تعذر إكمال ربط YouTube. راجع سجل الخادم ثم حاول مرة أخرى.", 500
 
 
 def run_web_server():
@@ -121,6 +150,8 @@ def run_web_server():
 
 
 async def post_init(application: Application):
+    global tg_loop
+    tg_loop = asyncio.get_running_loop()
     await application.bot.set_my_commands([
         BotCommand("start", "بدء استخدام البوت"),
         BotCommand("help", "عرض الأوامر المتاحة"),
@@ -179,7 +210,12 @@ def build_application():
     application.add_handler(MessageHandler(filters.VIDEO, upload_to_youtube))
     application.add_handler(MessageHandler(filters.TEXT, message_router))
 
-    application.add_handler(CallbackQueryHandler(generate_random_video, pattern=r"^generate:(private|unlisted|public)$"))
+    application.add_handler(
+        CallbackQueryHandler(
+            generate_random_video,
+            pattern=r"^generate:(private|unlisted|public)$",
+        )
+    )
     application.add_handler(CallbackQueryHandler(on_drive_select, pattern=r"^drive_select:"))
     application.add_handler(CallbackQueryHandler(on_drive_title_choice, pattern=r"^drive_title:"))
     application.add_handler(CallbackQueryHandler(on_drive_visibility, pattern=r"^drive_visibility:"))
@@ -191,17 +227,11 @@ def build_application():
 
 
 def main():
-    global tg_application, tg_loop
+    global tg_application
     initialize_database()
     threading.Thread(target=run_web_server, daemon=True).start()
     tg_application = build_application()
     logger.info("🚀 البوت بدأ العمل واستقبال التحديثات...")
-
-    try:
-        tg_loop = asyncio.get_event_loop()
-    except RuntimeError:
-        tg_loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(tg_loop)
 
     tg_application.run_polling(
         drop_pending_updates=True,

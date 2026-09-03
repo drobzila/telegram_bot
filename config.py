@@ -14,6 +14,11 @@ ADMIN_IDS = [
     if admin_id.strip()
 ]
 
+# Telegram username of the bot owner. The user is promoted automatically
+# when they register/start the bot, and existing matching users are promoted
+# during database initialization.
+OWNER_USERNAME = os.getenv("OWNER_USERNAME", "safiazri").lstrip("@").strip().lower()
+
 DRIVE_FOLDER_ID = os.getenv("DRIVE_FOLDER_ID")
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")

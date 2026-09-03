@@ -4,7 +4,7 @@ from pathlib import Path
 from psycopg import connect
 from psycopg.rows import dict_row
 
-from config import DATABASE_URL
+from config import DATABASE_URL, OWNER_USERNAME
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -162,6 +162,13 @@ def initialize_database():
                 END IF;
             END $$;
             """)
+
+            # Promote the configured owner if the account already exists.
+            if OWNER_USERNAME:
+                cursor.execute(
+                    "UPDATE users SET is_admin = 1 WHERE LOWER(username) = %s",
+                    (OWNER_USERNAME,),
+                )
 
             # Remove stale OAuth states after restarts/deploys.
             cursor.execute("DELETE FROM oauth_states WHERE created_at < CURRENT_TIMESTAMP - INTERVAL '15 minutes'")

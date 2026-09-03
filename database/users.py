@@ -1,14 +1,24 @@
+from config import OWNER_USERNAME
 from database.db import get_connection
 
 
 def register_user(user):
+    username = (user.username or "").lstrip("@").strip().lower() or None
+    is_owner = bool(username and username == OWNER_USERNAME)
+
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO users (telegram_id, username, first_name)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (telegram_id) DO NOTHING
-            """, (user.id, user.username, user.first_name))
+                INSERT INTO users (telegram_id, username, first_name, is_admin)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (telegram_id) DO UPDATE SET
+                    username = EXCLUDED.username,
+                    first_name = EXCLUDED.first_name,
+                    is_admin = CASE
+                        WHEN EXCLUDED.is_admin = 1 THEN 1
+                        ELSE users.is_admin
+                    END
+            """, (user.id, username, user.first_name, int(is_owner)))
         conn.commit()
 
 
@@ -96,3 +106,11 @@ def get_user_id(telegram_id):
             cur.execute("SELECT id FROM users WHERE telegram_id = %s", (telegram_id,))
             row = cur.fetchone()
             return row["id"] if row else None
+
+
+def is_admin(telegram_id):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT is_admin FROM users WHERE telegram_id = %s", (telegram_id,))
+            row = cur.fetchone()
+            return bool(row["is_admin"]) if row else False

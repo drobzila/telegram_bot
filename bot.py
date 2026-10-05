@@ -145,6 +145,11 @@ def oauth_callback():
         return "تعذر إكمال ربط YouTube. راجع سجل الخادم ثم حاول مرة أخرى.", 500
 
 
+@web_app.route("/debug")
+def debug():
+    logger.warning("🔥🔥🔥 DEBUG ROUTE HIT 🔥🔥🔥")
+    return "DEBUG OK", 200
+
 def run_web_server():
     web_app.run(host="0.0.0.0", port=int(PORT), threaded=True)
 

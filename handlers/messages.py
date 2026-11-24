@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -138,7 +138,7 @@ async def message_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 video_id,
                 youtube_video_id=youtube_video_id,
                 status="uploaded",
-                uploaded_at=datetime.utcnow(),
+                uploaded_at=datetime.now(timezone.utc).replace(tzinfo=None),
             )
             clear_state(user_id)
             await status_message.edit_text(

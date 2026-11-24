@@ -33,7 +33,6 @@ from handlers.messages import message_router
 from handlers.start import start
 from handlers.status import status
 from handlers.sync import sync_count_handler, sync_handler
-from handlers.upload import upload_to_youtube
 from services.youtube_auth import build_flow
 from services.youtube_utils import test_youtube_connection
 
@@ -53,15 +52,19 @@ def health_check():
     return "🤖 البوت يعمل بشكل طبيعي"
 
 
-@web_app.route("/login/<int:user_id>")
-def oauth_login(user_id):
+@web_app.route("/login/<token>")
+def oauth_login(token):
+    # The URL carries a random, short-lived, one-time token, not a guessable Telegram ID.
+    telegram_id = consume_state(token)
+    if telegram_id is None:
+        return "رابط الربط غير صالح أو انتهت صلاحيته. اطلب رابطًا جديدًا من Telegram.", 400
     try:
         flow = build_flow()
         auth_url, state = flow.authorization_url(
             access_type="offline",
             prompt="consent",
         )
-        save_state(state, user_id)
+        save_state(state, telegram_id)
         return f'<html><script>window.location.replace({auth_url!r});</script></html>'
     except Exception:
         logger.exception("Failed to start YouTube OAuth")
@@ -145,11 +148,6 @@ def oauth_callback():
         return "تعذر إكمال ربط YouTube. راجع سجل الخادم ثم حاول مرة أخرى.", 500
 
 
-@web_app.route("/debug")
-def debug():
-    logger.warning("🔥🔥🔥 DEBUG ROUTE HIT 🔥🔥🔥")
-    return "DEBUG OK", 200
-
 def run_web_server():
     web_app.run(host="0.0.0.0", port=int(PORT), threaded=True)
 
@@ -169,7 +167,6 @@ async def log_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user = update.effective_user
         chat = update.effective_chat
-        message = update.effective_message
         update_type = "unknown"
         if update.message:
             update_type = "message"
@@ -181,12 +178,11 @@ async def log_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
             update_type = "channel_post"
 
         logger.info(
-            "📥 INCOMING UPDATE | update_id=%s | type=%s | user_id=%s | chat_id=%s | text=%r",
+            "Incoming update | update_id=%s | type=%s | user_id=%s | chat_id=%s",
             update.update_id,
             update_type,
             user.id if user else None,
             chat.id if chat else None,
-            message.text if message and message.text else None,
         )
     except Exception:
         logger.exception("❌ Failed to log incoming update")
@@ -194,8 +190,7 @@ async def log_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error("❌ TELEGRAM HANDLER ERROR", exc_info=context.error)
-    if update is not None:
-        logger.error("❌ Failed update: %r", update)
+    # Avoid logging full update objects: they may contain private user messages.
 
 
 def build_application():
@@ -212,8 +207,7 @@ def build_application():
     application.add_handler(CommandHandler("users", users_list))
     application.add_handler(CommandHandler("pending", pending_deletions_list))
 
-    application.add_handler(MessageHandler(filters.VIDEO, upload_to_youtube))
-    application.add_handler(MessageHandler(filters.TEXT, message_router))
+    application.add_handler(MessageHandler(filters.TEXT | filters.VIDEO, message_router))
 
     application.add_handler(
         CallbackQueryHandler(

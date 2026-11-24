@@ -1,5 +1,6 @@
 import logging
 import time
+from datetime import datetime, timezone
 
 from database.oauth_tokens import get_token, save_token
 from google.auth.transport.requests import Request
@@ -26,12 +27,23 @@ def get_youtube_service(telegram_id):
     if not token.get("access_token"):
         raise RuntimeError("توكن YouTube غير صالح. يرجى إعادة تسجيل الدخول.")
 
+    expiry = None
+    expires_at = token.get("expires_at")
+    if expires_at:
+        try:
+            expiry = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+            if expiry.tzinfo is None:
+                expiry = expiry.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            logger.warning("Stored YouTube token expiry is invalid for user %s", telegram_id)
+
     creds = Credentials(
         token=token["access_token"],
         refresh_token=token.get("refresh_token"),
         token_uri="https://oauth2.googleapis.com/token",
         client_id=GOOGLE_CLIENT_ID,
         client_secret=GOOGLE_CLIENT_SECRET,
+        expiry=expiry,
     )
 
     if not creds.valid:

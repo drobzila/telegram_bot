@@ -1,6 +1,14 @@
 .env
+.env.*
+!.env.example
+client_secret.json
+telegram_bot.zip
+*.zip
 data/
 __pycache__/
-*.pyc
+*.py[cod]
+*.db
+*.sqlite
+*.sqlite3
 venv/
 .venv/
